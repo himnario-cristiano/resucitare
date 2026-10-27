@@ -17,9 +17,6 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
 
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
-
     <style>
         /* ================= VARIABLES DUAL THEME ================= */
         :root {
@@ -557,8 +554,7 @@
     </div>
     
     <!-- Reemplaza tu etiqueta de audio actual por esta: -->
-<audio id="audioPlayer1" class="audio-engine" preload="auto" playsinline webkit-playsinline style="position: absolute; width: 0; height: 0; opacity: 0; pointer-events: none;" controls></audio> 
-
+<audio id="audioPlayer1" class="audio-engine" preload="auto" playsinline webkit-playsinline crossorigin="anonymous" style="position: absolute; width: 0; height: 0; opacity: 0; pointer-events: none;" controls></audio>
     <header class="app-header">
         <div class="header-top">
             <div class="brand">
@@ -1044,20 +1040,40 @@
         btnConfirmClear.addEventListener('click', () => { window.location.href = "/resucitare/clearcookies/"; });
         
         let activeAudio = document.getElementById("audioPlayer1");
-        let isGlobalAudioUnlocked = false;
-        let backgroundPlaybackExpected = false;
-        let intentionalPause = true; 
+let isGlobalAudioUnlocked = false;
+let backgroundPlaybackExpected = false;
+let intentionalPause = true; 
+let audioCtx; // <-- NUEVA VARIABLE GLOBAL
 
-        function initializeGlobalPermissions() {
-            if (isGlobalAudioUnlocked) return;
-            if ("Notification" in window && Notification.permission === "default") { Notification.requestPermission().catch(() => {}); }
-            isGlobalAudioUnlocked = true;
-            document.removeEventListener('click', initializeGlobalPermissions);
-            document.removeEventListener('touchstart', initializeGlobalPermissions);
-        }
-        document.addEventListener('click', initializeGlobalPermissions, { once: true });
-        document.addEventListener('touchstart', initializeGlobalPermissions, { once: true });
+function initializeGlobalPermissions() {
+    if (isGlobalAudioUnlocked) return;
+    if ("Notification" in window && Notification.permission === "default") { Notification.requestPermission().catch(() => {}); }
+    
+    // --- TRUCO ANTI-AHORRO DE ENERGÍA Y SEGUNDO PLANO ---
+    try {
+        const AudioContext = window.AudioContext || window.webkitAudioContext;
+        audioCtx = new AudioContext();
+        
+        // Creamos un oscilador inaudible (volumen 0) que corre de fondo
+        const gainNode = audioCtx.createGain();
+        gainNode.gain.value = 0; // Totalmente silenciado
+        gainNode.connect(audioCtx.destination);
+        
+        const oscillator = audioCtx.createOscillator();
+        oscillator.frequency.value = 1; // Frecuencia inaudible
+        oscillator.connect(gainNode);
+        oscillator.start();
+    } catch (e) {
+        console.log("Web Audio API no soportado", e);
+    }
+    // ----------------------------------------------------
 
+    isGlobalAudioUnlocked = true;
+    document.removeEventListener('click', initializeGlobalPermissions);
+    document.removeEventListener('touchstart', initializeGlobalPermissions);
+}
+document.addEventListener('click', initializeGlobalPermissions, { once: true });
+document.addEventListener('touchstart', initializeGlobalPermissions, { once: true });
         const globalCoverUrl = "https://i.postimg.cc/XqVx7WYG/resucitare.png";
         let songIndex = 0; let isPlaying = false; let showOnlyFavorites = false; let playbackMode = 0; let isBuffering = false;
 
@@ -2126,6 +2142,29 @@ window.copyToClipboard = function(elementId, btnElement) {
             }
         });
         // ================= FIN SISTEMA DE LOGIN =================
+        // --- FORZAR REPRODUCCIÓN AL BLOQUEAR PANTALLA O MINIMIZAR ---
+document.addEventListener("visibilitychange", () => {
+    // Si la app pasa a segundo plano o se apaga la pantalla
+    if (document.hidden) {
+        // Si debería estar sonando y se pausó por el ahorro de energía, lo forzamos a reproducir
+        if (backgroundPlaybackExpected && !intentionalPause && activeAudio.paused) {
+            activeAudio.play().catch(() => {});
+        }
+    }
+    
+    // Asegurarnos de que el contexto de audio silencioso despierte si el sistema lo durmió
+    if (audioCtx && audioCtx.state === 'suspended' && backgroundPlaybackExpected && !intentionalPause) {
+        audioCtx.resume();
+    }
+});
+
+// Intervalo de seguridad para reconectar el audio en caso de que el sistema operativo mate el proceso
+setInterval(() => {
+    if (backgroundPlaybackExpected && !intentionalPause) {
+        if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+        if (activeAudio.paused) activeAudio.play().catch(()=>{});
+    }
+}, 3000);
     </script>
 </body>
 </html>
